@@ -1,0 +1,74 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js" 
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id         String       @id @default(cuid())
+  email      String       @unique
+  password   String
+  role       String       // "PENDING" | "USER" | "ADMIN"
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  chats      Chat[]
+  biDashboards BIDashboard[]
+  
+  @@map("users")
+}
+
+model Chat {
+  id        String    @id @default(cuid())
+  title     String?
+  userId    String?
+  user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  messages  Message[]
+  
+  @@map("chats")
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  role      String   // "user" | "assistant"
+  content   String
+  chatId    String
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  
+  // For tool calls and metadata (stored as JSON strings for SQLite compatibility)
+  toolCalls String?  // JSON string
+  metadata  String?  // JSON string
+  
+  @@map("messages")
+}
+
+model AppSettings {
+  id            Int      @id @default(1)
+  openaiBaseUrl String?
+  openaiApiKey  String?
+  postgresUrl   String?
+  mssqlUrl      String?
+  updatedAt     DateTime @updatedAt
+
+  @@map("app_settings")
+}
+
+model BIDashboard {
+  id        String   @id @default(cuid())
+  title     String
+  config    String   // JSON string of BIConfig
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("bi_dashboards")
+}

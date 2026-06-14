@@ -1,0 +1,16 @@
+node_modules
+.next
+.moz
+dist
+.git
+.gitignore
+npm-debug.log*
+Dockerfile*
+docker-compose*.yml
+.env.local
+backend/
+prisma/dev.db
+
+pnpm-lock.yaml
+yarn.lock
+*.gz
