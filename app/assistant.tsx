@@ -12,16 +12,6 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
-import { Separator } from "@/components/ui/separator";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { SearchModal } from "@/components/search-modal";
 import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,13 +20,17 @@ import { SettingsModal } from "@/components/settings-modal";
 import { ArtifactProvider, useArtifacts } from "@/lib/contexts/artifact-context";
 import { ArtifactPane } from "@/components/artifacts/artifact-pane";
 import { ConversationThread } from "@/components/assistant-ui/big-thread-migration/conversation-thread";
+import { ProviderErrorProvider, useProviderErrorStore } from "@/lib/provider-error-context";
+import { ProviderErrorSync } from "@/components/assistant-ui/provider-error-sync";
+import { getProviderErrorFromMetadata } from "@/lib/provider-error";
+import { ThemeToggle } from "@/components/theme-toggle";
 
-export const Assistant = ({ 
-  chatId: propChatId, 
+export const Assistant = ({
+  chatId: propChatId,
   initialMessages = [],
   starterPrompt,
-}: { 
-  chatId?: string; 
+}: {
+  chatId?: string;
   initialMessages?: UIMessage[];
   starterPrompt?: string | null;
 }) => {
@@ -46,15 +40,13 @@ export const Assistant = ({
   const router = useRouter();
   const [pendingStarter, setPendingStarter] = React.useState<string | null>(starterPrompt ?? null);
 
-  // Check authentication
   React.useEffect(() => {
     const token = getToken();
     if (!token) {
-      router.push('/login');
+      router.push("/login");
     }
   }, [router]);
 
-  // Listen for global settings open event from sidebar dropdown
   React.useEffect(() => {
     const handler = () => setSettingsOpen(true);
     if (typeof window !== "undefined") {
@@ -66,8 +58,7 @@ export const Assistant = ({
       }
     };
   }, []);
-  
-  // Update currentChatId when propChatId changes (but only if it's a new chatId)
+
   React.useEffect(() => {
     if (propChatId && propChatId !== currentChatId) {
       setCurrentChatId(propChatId);
@@ -77,10 +68,77 @@ export const Assistant = ({
   React.useEffect(() => {
     setPendingStarter(starterPrompt ?? null);
   }, [starterPrompt]);
-  
+
+  const handleChatSelect = (chatId: string) => {
+    if (chatId === "new") {
+      router.push("/chat");
+    } else {
+      router.push(`/chat/${chatId}`);
+    }
+  };
+
+  return (
+    <ArtifactProvider>
+      <ProviderErrorProvider initialMessages={initialMessages}>
+        <AssistantRuntimeRoot
+          currentChatId={currentChatId}
+          initialMessages={initialMessages}
+          pendingStarter={pendingStarter}
+          propChatId={propChatId}
+          router={router}
+          setPendingStarter={setPendingStarter}
+          searchModalOpen={searchModalOpen}
+          setSearchModalOpen={setSearchModalOpen}
+          settingsOpen={settingsOpen}
+          setSettingsOpen={setSettingsOpen}
+          handleChatSelect={handleChatSelect}
+        />
+      </ProviderErrorProvider>
+    </ArtifactProvider>
+  );
+};
+
+const AssistantRuntimeRoot: React.FC<{
+  currentChatId?: string;
+  initialMessages: UIMessage[];
+  pendingStarter: string | null;
+  propChatId?: string;
+  router: ReturnType<typeof useRouter>;
+  setPendingStarter: (value: string | null) => void;
+  searchModalOpen: boolean;
+  setSearchModalOpen: (open: boolean) => void;
+  settingsOpen: boolean;
+  setSettingsOpen: (open: boolean) => void;
+  handleChatSelect: (chatId: string) => void;
+}> = ({
+  currentChatId,
+  initialMessages,
+  pendingStarter,
+  propChatId,
+  router,
+  setPendingStarter,
+  searchModalOpen,
+  setSearchModalOpen,
+  settingsOpen,
+  setSettingsOpen,
+  handleChatSelect,
+}) => {
+  const { setPendingError, setError, clearPendingError } = useProviderErrorStore();
+
   const runtime = useChatRuntime({
     id: currentChatId,
     messages: initialMessages,
+    onError: (error) => {
+      setPendingError(error.message);
+    },
+    onFinish: ({ message }) => {
+      if (message.role !== "assistant") return;
+      const metadataError = getProviderErrorFromMetadata(message.metadata);
+      if (metadataError) {
+        setError(message.id, metadataError);
+        clearPendingError();
+      }
+    },
   });
 
   React.useEffect(() => {
@@ -101,46 +159,40 @@ export const Assistant = ({
     if (propChatId) {
       router.replace(`/chat/${propChatId}`);
     }
-  }, [pendingStarter, runtime, propChatId, router]);
-
-  const handleChatSelect = (chatId: string) => {
-    if (chatId === 'new') {
-      // Handle new chat creation - redirect to /chat page
-      router.push('/chat');
-    } else {
-      // Navigate to existing chat using Next.js router
-      router.push(`/chat/${chatId}`);
-    }
-  };
+  }, [pendingStarter, runtime, propChatId, router, setPendingStarter]);
 
   return (
-    <ArtifactProvider>
-      <AssistantInner 
-        runtime={runtime}
-        chatId={propChatId}
-        searchModalOpen={searchModalOpen}
-        setSearchModalOpen={setSearchModalOpen}
-        settingsOpen={settingsOpen}
-        setSettingsOpen={setSettingsOpen}
-        handleChatSelect={handleChatSelect}
-      />
-    </ArtifactProvider>
+    <AssistantInner
+      runtime={runtime}
+      searchModalOpen={searchModalOpen}
+      setSearchModalOpen={setSearchModalOpen}
+      settingsOpen={settingsOpen}
+      setSettingsOpen={setSettingsOpen}
+      handleChatSelect={handleChatSelect}
+    />
   );
 };
 
 const AssistantInner: React.FC<{
   runtime: ReturnType<typeof useChatRuntime>;
-  chatId?: string;
   searchModalOpen: boolean;
   setSearchModalOpen: (open: boolean) => void;
   settingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
   handleChatSelect: (chatId: string) => void;
-}> = ({ runtime, chatId, searchModalOpen, setSearchModalOpen, settingsOpen, setSettingsOpen, handleChatSelect }) => {
+}> = ({
+  runtime,
+  searchModalOpen,
+  setSearchModalOpen,
+  settingsOpen,
+  setSettingsOpen,
+  handleChatSelect,
+}) => {
   const { currentArtifact, isPaneOpen, closePane, paneWidth, setPaneWidth } = useArtifacts();
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
+      <ProviderErrorSync />
       <SidebarProvider>
         <div className="flex h-dvh w-full pr-0.5 relative">
           <AppSidebar />
@@ -176,8 +228,7 @@ const AssistantInner: React.FC<{
               <ConversationThread />
             </div>
           </SidebarInset>
-          
-          {/* Artifact Pane */}
+
           <ArtifactPane
             artifact={currentArtifact}
             isOpen={isPaneOpen}
@@ -187,8 +238,8 @@ const AssistantInner: React.FC<{
           />
         </div>
       </SidebarProvider>
-      <SearchModal 
-        open={searchModalOpen} 
+      <SearchModal
+        open={searchModalOpen}
         onOpenChange={setSearchModalOpen}
         onChatSelect={handleChatSelect}
       />
@@ -196,3 +247,4 @@ const AssistantInner: React.FC<{
     </AssistantRuntimeProvider>
   );
 };
+

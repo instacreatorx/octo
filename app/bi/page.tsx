@@ -88,8 +88,11 @@ export default function BIPageRoute() {
                     ? JSON.parse(data.output) 
                     : data.output;
                   
-                  if (output.biId) {
-                    biId = output.biId;
+                  const biIdValue =
+                    output?.data?.biId ??
+                    output?.biId;
+                  if (biIdValue) {
+                    biId = biIdValue;
                     break;
                   }
                 } catch (e) {

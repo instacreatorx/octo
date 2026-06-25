@@ -4,7 +4,6 @@ import {
   MessagePrimitive,
   ActionBarPrimitive,
   BranchPickerPrimitive,
-  ErrorPrimitive,
   useMessage,
 } from "@assistant-ui/react";
 import type { FC } from "react";
@@ -26,8 +25,8 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MarkdownText } from "./markdown-text";
-import { ToolFallback } from "./tool-fallback";
 import { ArtifactDetector } from "./artifact-detector";
+import { AssistantMessageBody } from "./assistant-message-body";
 
 export const Thread: FC<{ chatId?: string }> = ({ chatId }) => {
   return (
@@ -250,18 +249,6 @@ const ComposerAction: FC = () => {
   );
 };
 
-const MessageError: FC = () => {
-  return (
-    <MessagePrimitive.Error>
-      {/* aui-message-error-root */}
-      <ErrorPrimitive.Root className="border-destructive bg-destructive/10 dark:bg-destructive/5 text-destructive mt-2 rounded-md border p-3 text-sm dark:text-red-200">
-        {/* aui-message-error-message */}
-        <ErrorPrimitive.Message className="line-clamp-2" />
-      </ErrorPrimitive.Root>
-    </MessagePrimitive.Error>
-  );
-};
-
 const AssistantMessage: FC = () => {
   const message = useMessage();
   return (
@@ -282,13 +269,7 @@ const AssistantMessage: FC = () => {
         {/* aui-assistant-message-content */}
         <div className="text-foreground col-span-2 col-start-2 row-start-1 ml-4 leading-7 break-words">
           <ArtifactDetector />
-          <MessagePrimitive.Content
-            components={{
-              Text: MarkdownText,
-              tools: { Fallback: ToolFallback },
-            }}
-          />
-          <MessageError />
+          <AssistantMessageBody />
         </div>
 
         <AssistantActionBar />

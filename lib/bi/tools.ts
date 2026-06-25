@@ -1,4 +1,5 @@
 import { tool, type ToolSet } from "ai";
+import { toolFail, toolOk } from "@/lib/tool-result";
 import { z } from "zod";
 import { biConfigSchema } from "@/lib/types/bi";
 import { prisma } from "@/lib/db";
@@ -16,7 +17,7 @@ export const biTools = {
       try {
         configObj = typeof config === 'string' ? JSON.parse(config) : config;
       } catch (e) {
-        throw new Error("Config must be valid JSON");
+        return toolFail("Config must be valid JSON", "Invalid dashboard config");
       }
       const validatedConfig = biConfigSchema.parse(configObj);
       try {
@@ -52,14 +53,16 @@ export const biTools = {
           },
         });
 
-        return JSON.stringify({
-          success: true,
-          biId: biDashboard.id,
-          message: `BI dashboard saved successfully with ID: ${biDashboard.id}. The dashboard is now available at /bi/${biDashboard.id}`,
-        });
+        return toolOk(
+          {
+            biId: biDashboard.id,
+            url: `/bi/${biDashboard.id}`,
+          },
+          `BI dashboard saved successfully with ID: ${biDashboard.id}. The dashboard is now available at /bi/${biDashboard.id}`,
+        );
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to save BI config: ${errorMessage}`);
+        return toolFail(`Failed to save BI config: ${errorMessage}`, "Could not save dashboard");
       }
     },
   }),

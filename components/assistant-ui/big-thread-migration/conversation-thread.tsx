@@ -7,7 +7,6 @@
    MessagePrimitive,
    ActionBarPrimitive,
    BranchPickerPrimitive,
-   ErrorPrimitive,
    useMessage,
  } from "@assistant-ui/react";
  import {
@@ -27,8 +26,8 @@
  import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
  import { Button } from "@/components/ui/button";
  import { MarkdownText } from "@/components/assistant-ui/markdown-text";
- import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
  import { ArtifactDetector } from "@/components/assistant-ui/artifact-detector";
+ import { AssistantMessageBody } from "@/components/assistant-ui/assistant-message-body";
  import { cn } from "@/lib/utils";
 
  /**
@@ -157,16 +156,6 @@
    );
  };
 
- const MessageError: FC = () => {
-   return (
-     <MessagePrimitive.Error>
-       <ErrorPrimitive.Root className="border-destructive bg-destructive/10 dark:bg-destructive/5 text-destructive mt-2 rounded-md border p-3 text-sm dark:text-red-200">
-         <ErrorPrimitive.Message className="line-clamp-2" />
-       </ErrorPrimitive.Root>
-     </MessagePrimitive.Error>
-   );
- };
-
  const AssistantMessage: FC = () => {
    const message = useMessage();
    return (
@@ -184,13 +173,7 @@
 
          <div className="text-foreground col-span-2 col-start-2 row-start-1 ml-4 leading-7 break-words">
            <ArtifactDetector />
-           <MessagePrimitive.Content
-             components={{
-               Text: MarkdownText,
-               tools: { Fallback: ToolFallback },
-             }}
-           />
-           <MessageError />
+           <AssistantMessageBody />
          </div>
 
          <AssistantActionBar />

@@ -4,6 +4,8 @@ import {
   convertToModelMessages,
   validateUIMessages,
   TypeValidationError,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
 } from "ai";
 import { createOpenAI } from '@ai-sdk/openai';
 import {
@@ -24,6 +26,12 @@ export type ChatTools = InferUITools<typeof tools>;
 export type ChatMessage = UIMessage<never, UIDataTypes, ChatTools>;
 
 import { getEffectiveOpenAIConfig } from '@/lib/services/settings';
+import { mergeChatMessages, sanitizeUIMessages } from '@/lib/messages';
+import {
+  getProviderErrorMessage,
+  isProviderErrorFallbackText,
+  pipeUIMessageStreamWithProviderError,
+} from '@/lib/provider-error';
 
 const openai = createOpenAI();
 
@@ -129,11 +137,11 @@ export const POST = requireAuth(async (req, user) => {
     console.log('📚 API: New chat, starting with empty message history');
   }
 
-  // Append new message to previous messages
-  const allMessages = [...previousMessages, ...messages];
+  const allMessages = sanitizeUIMessages(
+    mergeChatMessages(previousMessages, messages),
+  );
   console.log('📝 API: Total messages to process:', allMessages.length);
 
-  // Validate loaded messages against tools
   let validatedMessages: UIMessage[];
   try {
     validatedMessages = await validateUIMessages({
@@ -143,20 +151,88 @@ export const POST = requireAuth(async (req, user) => {
   } catch (error) {
     if (error instanceof TypeValidationError) {
       console.error('⚠️ API: Database messages validation failed:', error);
-      // Start with empty history if validation fails
-      validatedMessages = messages;
+      validatedMessages = sanitizeUIMessages(messages);
     } else {
       throw error;
     }
   }
 
   const effective = await getEffectiveOpenAIConfig();
-  const result = streamText({
-    model: createOpenAI({ baseURL: effective.baseURL, apiKey: effective.apiKey }).chat("gpt-oss-120b"),
-    messages: convertToModelMessages(validatedMessages),
-    stopWhen: stepCountIs(5),
-    tools,
-    system: `You are OrangeAi 🍊, an expert Microsoft SQL Server (MSSQL) assistant. PostgreSQL tools are NOT available. Use only MSSQL tools.
+
+  let streamProviderError: string | undefined;
+
+  const stream = createUIMessageStream({
+    originalMessages: validatedMessages,
+    generateId: () => crypto.randomUUID(),
+    onFinish: async ({ messages }) => {
+      const normalized = messages.map((m: any) => ({
+        ...m,
+        id: m?.id && String(m.id).length > 0 ? m.id : crypto.randomUUID(),
+      }));
+
+      const seen = new Set<string>();
+      const deduped: any[] = [];
+      for (let i = normalized.length - 1; i >= 0; i--) {
+        const msg = normalized[i];
+        if (!seen.has(msg.id)) {
+          seen.add(msg.id);
+          deduped.unshift(msg);
+        }
+      }
+
+      if (streamProviderError) {
+        for (let i = deduped.length - 1; i >= 0; i--) {
+          const msg = deduped[i];
+          if (msg.role !== "assistant") continue;
+
+          const parts = Array.isArray(msg.parts) ? msg.parts : [];
+          const hasRealText = parts.some(
+            (part: { type?: string; text?: string }) =>
+              part?.type === "text" &&
+              typeof part.text === "string" &&
+              part.text.trim().length > 0 &&
+              !isProviderErrorFallbackText(part.text),
+          );
+
+          if (!hasRealText) {
+            deduped[i] = {
+              ...msg,
+              metadata: {
+                ...(msg.metadata ?? {}),
+                providerError: streamProviderError,
+              },
+              parts: parts.filter(
+                (part: { type?: string; text?: string }) =>
+                  !(
+                    part?.type === "text" &&
+                    typeof part.text === "string" &&
+                    isProviderErrorFallbackText(part.text)
+                  ),
+              ),
+            };
+          }
+          break;
+        }
+      }
+
+      console.log('💾 API: onFinish called with', messages.length, 'messages (deduped to', deduped.length, '), saving to chatId:', currentChatId);
+      try {
+        await saveChat(currentChatId, deduped as any);
+        console.log('✅ API: Successfully saved chat to database');
+      } catch (error) {
+        console.error('❌ API: Failed to save chat:', error);
+      }
+    },
+    execute: async ({ writer }) => {
+      const result = streamText({
+        model: createOpenAI({ baseURL: effective.baseURL, apiKey: effective.apiKey }).chat("gpt-oss-120b"),
+        messages: convertToModelMessages(validatedMessages, {
+          tools,
+          ignoreIncompleteToolCalls: true,
+        }),
+        stopWhen: stepCountIs(5),
+        tools,
+        system: `You are OrangeAi 🍊, an expert Microsoft SQL Server (MSSQL) assistant. PostgreSQL tools are NOT available. Use only MSSQL tools.
 
 Available MSSQL tools (all end with "Mssql"):
 - listSchemasMssql
@@ -217,45 +293,25 @@ Example WRONG (DO NOT DO THIS):
 - Providing "npm install" instructions
 - Including "How to use" sections
 - Creating two separate files`,
-  });
+      });
 
-  // ensure stream runs to completion even if client aborts
-  result.consumeStream();
+      result.consumeStream();
 
-  const response = result.toUIMessageStreamResponse({
-    originalMessages: validatedMessages,
-    // generate a stable server-side id when missing/blank (AI SDK v5)
-    generateMessageId: () => crypto.randomUUID(),
-    onFinish: async ({ messages }) => {
-      // normalize empty string ids to undefined so generateMessageId kicks in next round
-      const normalized = messages.map((m: any) => ({
-        ...m,
-        id: m?.id && String(m.id).length > 0 ? m.id : crypto.randomUUID(),
-      }));
-
-      // de-duplicate by id while preserving order (keeps last occurrence)
-      const seen = new Set<string>();
-      const deduped: any[] = [];
-      for (let i = normalized.length - 1; i >= 0; i--) {
-        const msg = normalized[i];
-        if (!seen.has(msg.id)) {
-          seen.add(msg.id);
-          deduped.unshift(msg);
-        }
-      }
-
-      console.log('💾 API: onFinish called with', messages.length, 'messages (deduped to', deduped.length, '), saving to chatId:', currentChatId);
-      try {
-        await saveChat(currentChatId, deduped as any);
-        console.log('✅ API: Successfully saved chat to database');
-      } catch (error) {
-        console.error('❌ API: Failed to save chat:', error);
-      }
+      await pipeUIMessageStreamWithProviderError(
+        result.toUIMessageStream({ onError: getProviderErrorMessage }),
+        (part) => writer.write(part as any),
+        (errorText) => {
+          streamProviderError = errorText;
+        },
+      );
     },
   });
 
-  // Add chatId to response headers if it was newly created (for client-side redirect)
-  // This includes cases where chatId was provided but didn't exist
+  const response = createUIMessageStreamResponse({
+    stream,
+    status: 200,
+  });
+
   if (isNewChat) {
     response.headers.set('X-Chat-Id', currentChatId);
   }

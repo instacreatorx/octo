@@ -14,9 +14,11 @@ export const rdbmsTools = {
   }),
   listTables: tool({
     description: "ONLY FOR POSTGRESQL - List tables in PostgreSQL. If schema is omitted, list all schemas' tables. DO NOT use this for MSSQL/SQL Server - use listTablesMssql instead.",
-    inputSchema: z.object({ schema: z.string().optional() }),
+    inputSchema: z.object({
+      schema: z.string().nullish().describe("Optional schema name."),
+    }),
     execute: async ({ schema }) => {
-      const tables = await listTables(schema);
+      const tables = await listTables(schema ?? undefined);
       if (!tables.length) return "No tables found.";
       return tables.map((t) => `${t.schema}.${t.name}`).join("\n");
     },

@@ -12,7 +12,9 @@ import {
   stepCountIs,
 } from 'ai';
 import { requireAuth } from '@/lib/auth/auth';
+import { extractToolData } from "@/lib/tool-result";
 import { getEffectiveOpenAIConfig } from '@/lib/services/settings';
+import { sanitizeUIMessages } from "@/lib/messages";
 import { mssqlTools } from '@/lib/rdbms/mssql/tools';
 import { tool } from 'ai';
 import { z } from 'zod';
@@ -61,7 +63,7 @@ export const POST = requireAuth(async (req, user) => {
       });
     } catch (error) {
       if (error instanceof TypeValidationError) {
-        validatedMessages = messages;
+        validatedMessages = sanitizeUIMessages(messages);
       } else {
         throw error;
       }
@@ -76,7 +78,10 @@ export const POST = requireAuth(async (req, user) => {
 
     const result = streamText({
       model: createOpenAI({ baseURL: effective.baseURL, apiKey: effective.apiKey }).chat("gpt-oss-120b"),
-      messages: convertToModelMessages(validatedMessages),
+      messages: convertToModelMessages(validatedMessages, {
+        tools: toolsWithContext as any,
+        ignoreIncompleteToolCalls: true,
+      }),
       stopWhen: stepCountIs(10), // Allow more steps for database exploration
       tools: toolsWithContext,
       system: `You are OrangeAi 🍊, an expert Business Intelligence (BI) dashboard assistant for Microsoft SQL Server (MSSQL).
@@ -237,13 +242,10 @@ You:
           for (const toolResult of toolResults) {
             if (toolResult.toolName === 'runReadOnlySQLMssql' && 'result' in toolResult) {
               try {
-                const result = (toolResult as any).result;
-                const parsed = typeof result === 'string' 
-                  ? JSON.parse(result) 
-                  : result;
-                if (Array.isArray(parsed)) {
-                  lastQueryResult = parsed;
-                  setCurrentRequestQueryData(parsed);
+                const rows = extractToolData((toolResult as { result: unknown }).result);
+                if (Array.isArray(rows)) {
+                  lastQueryResult = rows;
+                  setCurrentRequestQueryData(rows);
                 }
               } catch (e) {
                 console.error("Failed to parse query result:", e);
@@ -252,10 +254,9 @@ You:
             // Intercept saveBIConfig to get BI ID
             if (toolResult.toolName === 'saveBIConfig' && 'result' in toolResult) {
               try {
-                const result = (toolResult as any).result;
-                const parsed = typeof result === 'string' ? JSON.parse(result) : result;
-                if (parsed.biId) {
-                  savedBiId = parsed.biId;
+                const data = extractToolData((toolResult as { result: unknown }).result);
+                if (data && typeof data === "object" && "biId" in data) {
+                  savedBiId = String((data as { biId: string }).biId);
                 }
               } catch (e) {
                 console.error("Failed to parse saveBIConfig result:", e);

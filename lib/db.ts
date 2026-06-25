@@ -9,6 +9,19 @@ export const prisma = globalForPrisma.prisma ?? new PrismaClient();
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function safeParseJson(value: string | null | undefined): unknown {
+  if (!value) return undefined;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+}
+
 // Chat operations
 export async function createChat(userId?: string): Promise<string> {
   const chat = await prisma.chat.create({
@@ -34,14 +47,35 @@ export async function loadChat(id: string): Promise<UIMessage[]> {
     throw new Error('Chat not found');
   }
 
-  return chat.messages.map((message: any) => ({
-    id: message.id,
-    role: message.role as 'user' | 'assistant',
-    // AI SDK v5 UIMessage expects parts, not content
-    parts: [{ type: 'text', text: message.content }],
-    toolCalls: message.toolCalls ? JSON.parse(message.toolCalls) : undefined,
-    metadata: message.metadata ? JSON.parse(message.metadata) : undefined,
-  })) as unknown as UIMessage[];
+  return chat.messages.map((message: any) => {
+    const metadata = safeParseJson(message.metadata);
+    const storedUIMessage =
+      isRecord(metadata) && isRecord(metadata.__uiMessage)
+        ? (metadata.__uiMessage as Record<string, unknown>)
+        : undefined;
+
+    if (storedUIMessage) {
+      const restored = storedUIMessage as unknown as UIMessage;
+      return {
+        ...restored,
+        id: message.id,
+        role: (storedUIMessage.role as 'user' | 'assistant') ?? (message.role as 'user' | 'assistant'),
+      } as UIMessage;
+    }
+
+    const legacyParts =
+      isRecord(metadata) && Array.isArray((metadata as { parts?: unknown }).parts)
+        ? (metadata as { parts: unknown[] }).parts
+        : undefined;
+
+    return {
+      id: message.id,
+      role: message.role as 'user' | 'assistant',
+      parts: legacyParts && legacyParts.length > 0
+        ? legacyParts
+        : [{ type: 'text', text: message.content ?? '' }],
+    } as UIMessage;
+  });
 }
 
 export async function saveChat(chatId: string, messages: UIMessage[]): Promise<void> {
@@ -88,21 +122,29 @@ export async function saveChat(chatId: string, messages: UIMessage[]): Promise<v
   for (const message of messages) {
     // guarantee an id for every message (server authority)
     const messageId = (message as any)?.id ?? crypto.randomUUID();
+    const messageForStorage = { ...(message as any), id: messageId };
+    const parsedMetadata = isRecord(messageForStorage?.metadata)
+      ? { ...messageForStorage.metadata }
+      : {};
+    const metadata = JSON.stringify({
+      ...parsedMetadata,
+      __uiMessage: messageForStorage,
+    });
 
     await prisma.message.upsert({
       where: { id: messageId },
       update: {
         content: getText(message as any),
-        toolCalls: 'toolCalls' in message && message.toolCalls ? JSON.stringify(message.toolCalls) : null,
-        metadata: 'metadata' in message && message.metadata ? JSON.stringify(message.metadata) : null,
+        toolCalls: null,
+        metadata,
       },
       create: {
         id: messageId,
         role: message.role,
         content: getText(message as any),
         chatId,
-        toolCalls: 'toolCalls' in message && message.toolCalls ? JSON.stringify(message.toolCalls) : null,
-        metadata: 'metadata' in message && message.metadata ? JSON.stringify(message.metadata) : null,
+        toolCalls: null,
+        metadata,
       },
     });
   }
