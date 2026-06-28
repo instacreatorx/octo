@@ -178,7 +178,7 @@
 
          <AssistantActionBar />
 
-         <BranchPicker className="col-start-2 row-start-2 mr-2 -ml-2" />
+         <BranchPicker className="col-start-2 col-span-2 row-start-2 mt-1 ml-2" />
        </motion.div>
      </MessagePrimitive.Root>
    );

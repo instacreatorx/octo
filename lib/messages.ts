@@ -33,6 +33,20 @@ export function sanitizeUIMessages(messages: UIMessage[]): UIMessage[] {
     });
 }
 
+function isIncomingPrefixOfPrevious(
+  previousMessages: UIMessage[],
+  incomingMessages: UIMessage[],
+): boolean {
+  if (incomingMessages.length > previousMessages.length) return false;
+
+  return incomingMessages.every((message, index) => {
+    const previous = previousMessages[index];
+    if (!previous) return false;
+    if (!message.id || !previous.id) return false;
+    return message.id === previous.id;
+  });
+}
+
 export function mergeChatMessages(
   previousMessages: UIMessage[],
   incomingMessages: UIMessage[],
@@ -42,6 +56,12 @@ export function mergeChatMessages(
   }
 
   if (incomingMessages.length >= previousMessages.length) {
+    return incomingMessages;
+  }
+
+  // Regenerate/reload sends a truncated thread (e.g. user only). Respect that
+  // instead of keeping stale assistant messages from the database.
+  if (isIncomingPrefixOfPrevious(previousMessages, incomingMessages)) {
     return incomingMessages;
   }
 

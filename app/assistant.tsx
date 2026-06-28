@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
-import { useChatRuntime } from "@assistant-ui/react-ai-sdk";
+import { useAssistantChatRuntime } from "@/hooks/use-assistant-chat-runtime";
 import { UIMessage } from "ai";
 import { getToken } from "@/lib/auth/client";
 import { useRouter } from "next/navigation";
@@ -22,6 +22,7 @@ import { ArtifactPane } from "@/components/artifacts/artifact-pane";
 import { ConversationThread } from "@/components/assistant-ui/big-thread-migration/conversation-thread";
 import { ProviderErrorProvider, useProviderErrorStore } from "@/lib/provider-error-context";
 import { ProviderErrorSync } from "@/components/assistant-ui/provider-error-sync";
+import { BranchHeadSync } from "@/components/assistant-ui/branch-head-sync";
 import { getProviderErrorFromMetadata } from "@/lib/provider-error";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -125,7 +126,7 @@ const AssistantRuntimeRoot: React.FC<{
 }) => {
   const { setPendingError, setError, clearPendingError } = useProviderErrorStore();
 
-  const runtime = useChatRuntime({
+  const runtime = useAssistantChatRuntime({
     id: currentChatId,
     messages: initialMessages,
     onError: (error) => {
@@ -164,6 +165,7 @@ const AssistantRuntimeRoot: React.FC<{
   return (
     <AssistantInner
       runtime={runtime}
+      chatId={propChatId}
       searchModalOpen={searchModalOpen}
       setSearchModalOpen={setSearchModalOpen}
       settingsOpen={settingsOpen}
@@ -174,7 +176,8 @@ const AssistantRuntimeRoot: React.FC<{
 };
 
 const AssistantInner: React.FC<{
-  runtime: ReturnType<typeof useChatRuntime>;
+  runtime: ReturnType<typeof useAssistantChatRuntime>;
+  chatId?: string;
   searchModalOpen: boolean;
   setSearchModalOpen: (open: boolean) => void;
   settingsOpen: boolean;
@@ -182,6 +185,7 @@ const AssistantInner: React.FC<{
   handleChatSelect: (chatId: string) => void;
 }> = ({
   runtime,
+  chatId,
   searchModalOpen,
   setSearchModalOpen,
   settingsOpen,
@@ -193,6 +197,7 @@ const AssistantInner: React.FC<{
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ProviderErrorSync />
+      <BranchHeadSync chatId={chatId} />
       <SidebarProvider>
         <div className="flex h-dvh w-full pr-0.5 relative">
           <AppSidebar />

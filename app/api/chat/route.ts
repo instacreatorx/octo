@@ -14,6 +14,7 @@ import {
   stepCountIs,
 } from 'ai';
 import { loadChat, saveChat, createChat } from '@/lib/db';
+import { appendChatBranchMessage } from '@/lib/chat-repository';
 import { mssqlTools } from '@/lib/rdbms/mssql/tools';
 import { mssqlWriteTools } from '@/lib/rdbms/mssql/tools_write';
 import { requireAuth } from '@/lib/auth/auth';
@@ -218,6 +219,16 @@ export const POST = requireAuth(async (req, user) => {
       console.log('💾 API: onFinish called with', messages.length, 'messages (deduped to', deduped.length, '), saving to chatId:', currentChatId);
       try {
         await saveChat(currentChatId, deduped as any);
+
+        const lastUser = [...deduped].reverse().find((m) => m.role === "user");
+        const lastAssistant = [...deduped].reverse().find((m) => m.role === "assistant");
+        if (lastUser && lastAssistant) {
+          await appendChatBranchMessage(currentChatId, {
+            parentId: lastUser.id,
+            message: lastAssistant as UIMessage,
+          });
+        }
+
         console.log('✅ API: Successfully saved chat to database');
       } catch (error) {
         console.error('❌ API: Failed to save chat:', error);
